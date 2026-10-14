@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ta">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>pottifc</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #shot {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    opacity: 0;
+    transition: opacity .35s ease;
+    -webkit-user-drag: none;
+  }
+  #shot.ready { opacity: 1; }
+  #shot.contain { object-fit: contain; }
+</style>
+</head>
+<body>
+  <img id="shot" alt="">
+  <audio id="track" preload="auto" playsinline></audio>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+import { firebaseConfig, CONFIG_PATH } from "./firebase-config.js";
+
+const img = document.getElementById("shot");
+const audio = document.getElementById("track");
+
+let currentAudioUrl = "";
+let wantsPlayback = false;
+
+// --- autoplay ---------------------------------------------------------
+// Browsers block sound until the user has interacted with the page, so we
+// try straight away and otherwise arm a one-shot listener on the first
+// gesture of any kind. No visible control is ever shown.
+const GESTURES = ["pointerdown", "touchstart", "mousedown", "keydown", "click", "scroll"];
+
+function armGestureFallback() {
+  const kick = () => {
+    GESTURES.forEach((e) => window.removeEventListener(e, kick, true));
+    tryPlay();
+  };
+  GESTURES.forEach((e) => window.addEventListener(e, kick, { capture: true, once: true }));
+}
+
+function tryPlay() {
+  if (!wantsPlayback || !audio.src) return;
+  const p = audio.play();
+  if (p && typeof p.catch === "function") p.catch(armGestureFallback);
+}
+
+// A tab opened in the background cannot start audio; retry when it is shown.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && audio.paused) tryPlay();
+});
+
+// --- live config ------------------------------------------------------
+onValue(ref(getDatabase(initializeApp(firebaseConfig)), CONFIG_PATH), (snap) => {
+  const cfg = snap.val() || {};
+
+  if (cfg.imageUrl && img.src !== cfg.imageUrl) {
+    img.classList.remove("ready");
+    img.onload = () => img.classList.add("ready");
+    img.src = cfg.imageUrl;
+  } else if (cfg.imageUrl) {
+    img.classList.add("ready");
+  }
+
+  img.classList.toggle("contain", cfg.fit === "contain");
+  document.body.style.background = cfg.background || "#000";
+
+  audio.loop = cfg.loop !== false;
+  audio.volume = typeof cfg.volume === "number" ? cfg.volume : 1;
+
+  if (cfg.audioUrl && cfg.audioUrl !== currentAudioUrl) {
+    currentAudioUrl = cfg.audioUrl;
+    audio.src = cfg.audioUrl;
+    audio.load();
+  }
+
+  wantsPlayback = Boolean(cfg.audioUrl);
+  if (wantsPlayback) tryPlay();
+  else audio.pause();
+});
+</script>
+</body>
+</html>
